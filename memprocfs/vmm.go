@@ -114,6 +114,7 @@ func (v *Vmm) MemRead(pid uint32, va uint64, size uint32) ([]byte, error) {
 	if success == 0 {
 		return nil, errors.New("failed to read memory")
 	}
+
 	return buf, nil
 }
 
