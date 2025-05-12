@@ -70,7 +70,7 @@ func NewMemScatter(addr uint64, size uint32) *MemScatter {
 		buf: make([]byte, size),
 	}
 	ms.cMem.version = C.DWORD(MemScatterVersion)
-	ms.cMem.f = C.FALSE
+	ms.cMem.f = 0
 	ms.cMem.qwA = C.QWORD(addr)
 	ms.cMem.pb = (*C.uchar)(unsafe.Pointer(&ms.buf[0]))
 	ms.cMem.cb = C.DWORD(size)
@@ -82,12 +82,12 @@ func NewMemScatter(addr uint64, size uint32) *MemScatter {
 }
 
 func (m *MemScatter) Data() []byte {
-	if m.cMem.f == C.TRUE {
+	if m.cMem.f == 1 {
 		return m.buf
 	}
 	return nil
 }
 
 func (m *MemScatter) Success() bool {
-	return m.cMem.f == C.TRUE
+	return m.cMem.f == 1
 }
