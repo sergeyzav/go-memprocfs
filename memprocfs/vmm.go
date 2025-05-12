@@ -1,6 +1,7 @@
 package memprocfs
 
 /*
+#include <stdlib.h>
 #include "vmmdll.h"
 #include "leechcore.h"
 */
