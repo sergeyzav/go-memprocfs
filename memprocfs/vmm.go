@@ -1,7 +1,6 @@
 package memprocfs
 
 /*
-#include <stdlib.h>
 #include "vmmdll.h"
 #include "leechcore.h"
 */
@@ -73,7 +72,7 @@ func NewVmm(args ...string) (*Vmm, error) {
 	if len(args) == 0 {
 		args = defaultArgs
 	}
-	cArgs := make([]*C.char, len(args))
+	cArgs := make([]C.LPCSTR, len(args))
 	for i, s := range args {
 		cArgs[i] = C.CString(s)
 		defer C.free(unsafe.Pointer(cArgs[i]))
@@ -83,17 +82,13 @@ func NewVmm(args ...string) (*Vmm, error) {
 
 	var pErrorInfo C.PPLC_CONFIG_ERRORINFO
 
-	handle := C.VMMDLL_InitializeEx(argc, (**C.char)(unsafe.Pointer(&cArgs[0])), &pErrorInfo)
-	//defer freeMemory(pErrorInfo)
+	handle := C.VMMDLL_InitializeEx(argc, &cArgs[0], pErrorInfo)
+	defer freeMemory(unsafe.Pointer(pErrorInfo))
 
-	if handle == nil && pErrorInfo == nil {
-		return nil, errors.New("VMM initialization failed")
+	if handle == nil {
+		info := newLCConfigErrorInfo(pErrorInfo)
+		return nil, errors.New(info.Text)
 	}
-
-	//if handle == nil && pErrorInfo != nil {
-	//	info := newLCConfigErrorInfo(pErrorInfo)
-	//	return nil, errors.New(info.Text)
-	//}
 
 	return &Vmm{handle: handle}, nil
 }
