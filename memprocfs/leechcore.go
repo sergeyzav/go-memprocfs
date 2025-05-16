@@ -24,11 +24,12 @@ type LCConfigErrorInfo struct {
 	Text             string
 }
 
-func newLCConfigErrorInfo(ppInfo C.PPLC_CONFIG_ERRORINFO) *LCConfigErrorInfo {
-	cInfo := *(*C.LC_CONFIG_ERRORINFO)(*ppInfo)
-	if cInfo == nil {
+func newLCConfigErrorInfo(pInfo C.PLC_CONFIG_ERRORINFO) *LCConfigErrorInfo {
+	if pInfo == nil {
 		return nil
 	}
+
+	cInfo := *pInfo
 
 	info := &LCConfigErrorInfo{
 		Version:          uint32(cInfo.dwVersion),
@@ -37,10 +38,12 @@ func newLCConfigErrorInfo(ppInfo C.PPLC_CONFIG_ERRORINFO) *LCConfigErrorInfo {
 		TextLength:       uint32(cInfo.cwszUserText),
 	}
 
-	//  WCHAR* (uint16) -> Go string
 	if info.TextLength > 0 {
-		ptr := unsafe.Pointer(&cInfo.wszUserText[0])
+		// Розрахунок адреси початку wszUserText
+		offset := unsafe.Sizeof(cInfo)
+		ptr := unsafe.Pointer(uintptr(unsafe.Pointer(pInfo)) + offset)
 
+		// Створюємо Go-slice з WCHAR
 		wcharSlice := (*[1 << 20]C.WCHAR)(ptr)[:info.TextLength:info.TextLength]
 
 		u16 := make([]uint16, info.TextLength)
@@ -54,40 +57,34 @@ func newLCConfigErrorInfo(ppInfo C.PPLC_CONFIG_ERRORINFO) *LCConfigErrorInfo {
 	return info
 }
 
-func freeMemory(ptr unsafe.Pointer) {
-	if ptr != nil {
-		C.LcMemFree(ptr)
-	}
-}
-
-type MemScatter struct {
-	cMem C.MEM_SCATTER
-	buf  []byte // to keep reference to Go-side buffer, so GC doesn’t move it
-}
-
-func NewMemScatter(addr uint64, size uint32) *MemScatter {
-	ms := &MemScatter{
-		buf: make([]byte, size),
-	}
-	ms.cMem.version = C.DWORD(MemScatterVersion)
-	ms.cMem.f = 0
-	ms.cMem.qwA = C.QWORD(addr)
-	ms.cMem.pb = (*C.uchar)(unsafe.Pointer(&ms.buf[0]))
-	ms.cMem.cb = C.DWORD(size)
-	ms.cMem.iStack = 0
-	for i := 0; i < MemScatterStackSize; i++ {
-		ms.cMem.vStack[i] = 0
-	}
-	return ms
-}
-
-func (m *MemScatter) Data() []byte {
-	if m.cMem.f == 1 {
-		return m.buf
-	}
-	return nil
-}
-
-func (m *MemScatter) Success() bool {
-	return m.cMem.f == 1
-}
+//type MemScatter struct {
+//	cMem C.MEM_SCATTER
+//	buf  []byte // to keep reference to Go-side buffer, so GC doesn’t move it
+//}
+//
+//func NewMemScatter(addr uint64, size uint32) *MemScatter {
+//	ms := &MemScatter{
+//		buf: make([]byte, size),
+//	}
+//	ms.cMem.version = C.DWORD(MemScatterVersion)
+//	ms.cMem.f = 0
+//	ms.cMem.qwA = C.QWORD(addr)
+//	ms.cMem.pb = (*C.uchar)(unsafe.Pointer(&ms.buf[0]))
+//	ms.cMem.cb = C.DWORD(size)
+//	ms.cMem.iStack = 0
+//	for i := 0; i < MemScatterStackSize; i++ {
+//		ms.cMem.vStack[i] = 0
+//	}
+//	return ms
+//}
+//
+//func (m *MemScatter) Data() []byte {
+//	if m.cMem.f == 1 {
+//		return m.buf
+//	}
+//	return nil
+//}
+//
+//func (m *MemScatter) Success() bool {
+//	return m.cMem.f == 1
+//}

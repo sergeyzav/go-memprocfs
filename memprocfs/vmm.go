@@ -31,24 +31,6 @@ const (
 	FlagScatterForcePageRead      = 0x4000 // Force page-sized reads when using scatter functionality
 )
 
-// VMMDLL_MEMORYMODEL_TP constants
-const (
-	VMMDLL_MEMORYMODEL_NA     = 0
-	VMMDLL_MEMORYMODEL_X86    = 1
-	VMMDLL_MEMORYMODEL_X86PAE = 2
-	VMMDLL_MEMORYMODEL_X64    = 3
-	VMMDLL_MEMORYMODEL_ARM64  = 4
-)
-
-// VMMDLL_SYSTEM_TP constants
-const (
-	VMMDLL_SYSTEM_UNKNOWN_PHYSICAL = 0
-	VMMDLL_SYSTEM_UNKNOWN_64       = 1
-	VMMDLL_SYSTEM_WINDOWS_64       = 2
-	VMMDLL_SYSTEM_UNKNOWN_32       = 3
-	VMMDLL_SYSTEM_WINDOWS_32       = 4
-)
-
 // Memory read/write flags
 const (
 	VMMDLL_MEM_FLAG_NONE            = 0x00000000
@@ -80,23 +62,20 @@ func NewVmm(args ...string) (*Vmm, error) {
 
 	argc := C.DWORD(len(args))
 
-	var pErrorInfo C.PPLC_CONFIG_ERRORINFO
-
-	handle := C.VMMDLL_InitializeEx(argc, &cArgs[0], pErrorInfo)
-	defer freeMemory(unsafe.Pointer(pErrorInfo))
-
+	handle := C.VMMDLL_Initialize(argc, &cArgs[0])
 	if handle == nil {
-		info := newLCConfigErrorInfo(pErrorInfo)
-		return nil, errors.New(info.Text)
+		return nil, errors.New("VMM initialization failed")
 	}
 
-	return &Vmm{handle: handle}, nil
+	return &Vmm{handle: vmmHandle(handle)}, nil
 }
 
 func (v *Vmm) Close() {
-	if v.handle != nil {
-		C.VMMDLL_Close(v.handle)
+	if v.handle == nil {
+		return
 	}
+
+	go C.VMMDLL_Close(v.handle)
 }
 
 func CloseAll() {
@@ -149,21 +128,20 @@ func (v *Vmm) MemVirt2Phys(pid uint32, va uint64) (uint64, error) {
 
 // MemReadScatter reads memory in a scattered way
 
-// ConfigGet gets a configuration value
-func (v *Vmm) ConfigGet(option uint64) (uint64, error) {
-	var value uint64
-	success := C.VMMDLL_ConfigGet(v.handle, C.ULONG64(option), (*C.ULONG64)(unsafe.Pointer(&value)))
-	if success == 0 {
-		return 0, errors.New("failed to get config")
-	}
-	return value, nil
+func (v *Vmm) NewScatterTask(pid uint32, flags uint32) (*ScatterTask, error) {
+	return InitializeScatter(v, pid, flags)
 }
 
-// ConfigSet sets a configuration value
-func (v *Vmm) ConfigSet(option uint64, value uint64) error {
-	success := C.VMMDLL_ConfigSet(v.handle, C.ULONG64(option), C.ULONG64(value))
-	if success == 0 {
-		return errors.New("failed to set config")
+func freeMemory(ptr C.PVOID) {
+	if ptr != nil {
+		C.VMMDLL_MemFree(ptr)
 	}
-	return nil
+}
+
+func getMemSize(ptr C.PVOID) uint64 {
+	if ptr == nil {
+		return 0
+	}
+
+	return uint64(C.VMMDLL_MemGetSize(ptr))
 }
