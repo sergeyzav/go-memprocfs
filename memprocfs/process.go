@@ -607,3 +607,242 @@ func (vmm *Vmm) GetProcessModule(ctx context.Context, pid uint32, module string)
 		return result.addr, result.err
 	}
 }
+
+type PTEEntry struct {
+	VABase     uint64
+	Pages      uint64
+	PageFlags  uint64
+	IsWoW64    bool
+	FutureUse1 uint32
+	Text       string
+	Reserved1  uint32
+	SoftCount  uint32
+}
+
+func newPTEEntryFromC(cEntry *C.VMMDLL_MAP_PTEENTRY) PTEEntry {
+	offsetUnion := unsafe.Offsetof(cEntry._FutureUse1) + unsafe.Sizeof(cEntry._FutureUse1)
+	textPtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + offsetUnion))
+
+	return PTEEntry{
+		VABase:     uint64(cEntry.vaBase),
+		Pages:      uint64(cEntry.cPages),
+		PageFlags:  uint64(cEntry.fPage),
+		IsWoW64:    cEntry.fWoW64 != 0,
+		FutureUse1: uint32(cEntry._FutureUse1),
+		Text:       C.GoString((*C.char)(unsafe.Pointer(textPtr))),
+		Reserved1:  uint32(cEntry._Reserved1),
+		SoftCount:  uint32(cEntry.cSoftware),
+	}
+}
+
+// C.VMMDLL_MAP_PTE.
+type PTE struct {
+	Version    uint32
+	MultiText  []string
+	MapEntries []PTEEntry
+}
+
+func newPTEFromC(cPte *C.VMMDLL_MAP_PTE) PTE {
+	var multiText []string
+	if cPte.pbMultiText != nil && cPte.cbMultiText > 0 {
+		multiText = multiString(C.GoBytes(unsafe.Pointer(cPte.pbMultiText), C.int(cPte.cbMultiText)))
+	}
+
+	count := int(cPte.cMap)
+	entries := make([]PTEEntry, 0, count)
+	cEntryPtr := unsafe.Pointer(uintptr(unsafe.Pointer(cPte)) + unsafe.Offsetof(cPte.cMap) + unsafe.Sizeof(cPte.cMap))
+	for i := 0; i < count; i++ {
+		cEntry := (*C.VMMDLL_MAP_PTEENTRY)(unsafe.Pointer(uintptr(cEntryPtr) + uintptr(i)*unsafe.Sizeof(C.VMMDLL_MAP_PTEENTRY{})))
+		entries = append(entries, newPTEEntryFromC(cEntry))
+	}
+
+	return PTE{
+		Version:    uint32(cPte.dwVersion),
+		MultiText:  multiText,
+		MapEntries: entries,
+	}
+}
+
+func (vmm *Vmm) getProcessMapPTE(pid uint32, identifyModules bool) (*PTE, error) {
+	var cPteMap C.PVMMDLL_MAP_PTE
+	success := C.VMMDLL_Map_GetPteU(C.VMM_HANDLE(vmm.handle), C.DWORD(pid), C.BOOL(boolToInt(identifyModules)), &cPteMap)
+
+	if success == 0 || cPteMap == nil {
+		return nil, fmt.Errorf("failed to get PTE map for process %d", pid)
+	}
+
+	defer freeMemory(C.PVOID(cPteMap))
+
+	if cPteMap.dwVersion != MapPTEVersion {
+		return nil, ErrUnsupportedPTEVersion
+	}
+
+	pte := newPTEFromC(cPteMap)
+
+	return &pte, nil
+}
+
+func (vmm *Vmm) GetProcessMapPTE(ctx context.Context, pid uint32, identifyModules bool) (*PTE, error) {
+	resultChan := make(chan struct {
+		pte *PTE
+		err error
+	}, 1)
+
+	go func() {
+		pte, err := vmm.getProcessMapPTE(pid, identifyModules)
+		resultChan <- struct {
+			pte *PTE
+			err error
+		}{pte, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-resultChan:
+		return result.pte, result.err
+	}
+}
+
+type VADEntry struct {
+	VaStart uint64
+	VaEnd   uint64
+	VaVad   uint64
+
+	VadType         uint8
+	Protection      uint8
+	IsImage         bool
+	IsFile          bool
+	IsPageFile      bool
+	IsPrivateMemory bool
+	IsTeb           bool
+	IsStack         bool
+	Spare           uint8
+	HeapNum         uint8
+	IsHeap          bool
+	CwszDescription uint8
+
+	CommitCharge   uint32
+	MemCommit      bool
+	U2             uint32
+	CbPrototypePte uint32
+	VaPrototypePte uint64
+	VaSubsection   uint64
+
+	Text string
+
+	FutureUse1      uint32
+	Reserved1       uint32
+	VaFileObject    uint64
+	CVadExPages     uint32
+	CVadExPagesBase uint32
+	Reserved2       uint64
+}
+
+type VAD struct {
+	Version    uint32
+	PageCount  uint32
+	MultiText  []string
+	MapEntries []VADEntry
+}
+
+func newVADEntry(cEntry *C.VMMDLL_MAP_VADENTRY) VADEntry {
+
+	ptr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry.vaSubsection) + unsafe.Sizeof(cEntry.vaSubsection)))
+	text := C.GoString((*C.char)(unsafe.Pointer(ptr)))
+
+	flags := *(*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry.vaVad) + unsafe.Sizeof(cEntry.vaVad)))
+	nextFlags := *(*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry.vaVad) + unsafe.Sizeof(cEntry.vaVad) + unsafe.Sizeof(C.DWORD(0))))
+
+	return VADEntry{
+		VaStart: uint64(cEntry.vaStart),
+		VaEnd:   uint64(cEntry.vaEnd),
+		VaVad:   uint64(cEntry.vaVad),
+
+		VadType:         uint8((flags >> 0) & 0x7),
+		Protection:      uint8((flags >> 3) & 0x1F),
+		IsImage:         ((flags >> 8) & 0x1) != 0,
+		IsFile:          ((flags >> 9) & 0x1) != 0,
+		IsPageFile:      ((flags >> 10) & 0x1) != 0,
+		IsPrivateMemory: ((flags >> 11) & 0x1) != 0,
+		IsTeb:           ((flags >> 12) & 0x1) != 0,
+		IsStack:         ((flags >> 13) & 0x1) != 0,
+		Spare:           uint8((flags >> 14) & 0x3),
+		HeapNum:         uint8((flags >> 16) & 0x7F),
+		IsHeap:          ((flags >> 23) & 0x1) != 0,
+		CwszDescription: uint8((flags >> 24) & 0xFF),
+
+		CommitCharge:    nextFlags & 0x7FFFFFFF,
+		MemCommit:       (nextFlags>>31)&0x1 != 0,
+		U2:              uint32(cEntry.u2),
+		CbPrototypePte:  uint32(cEntry.cbPrototypePte),
+		VaPrototypePte:  uint64(cEntry.vaPrototypePte),
+		VaSubsection:    uint64(cEntry.vaSubsection),
+		Text:            text,
+		FutureUse1:      uint32(cEntry._FutureUse1),
+		Reserved1:       uint32(cEntry._Reserved1),
+		VaFileObject:    uint64(cEntry.vaFileObject),
+		CVadExPages:     uint32(cEntry.cVadExPages),
+		CVadExPagesBase: uint32(cEntry.cVadExPagesBase),
+		Reserved2:       uint64(cEntry._Reserved2),
+	}
+}
+
+func newVAD(cVad *C.VMMDLL_MAP_VAD) VAD {
+	count := uint32(cVad.cMap)
+
+	entries := make([]VADEntry, count)
+	cEntryPtr := unsafe.Pointer(uintptr(unsafe.Pointer(cVad)) + unsafe.Offsetof(cVad.cMap) + unsafe.Sizeof(cVad.cMap))
+
+	for i := 0; i < int(count); i++ {
+		cEntry := (*C.VMMDLL_MAP_VADENTRY)(unsafe.Pointer(uintptr(cEntryPtr) + uintptr(i)*unsafe.Sizeof(C.VMMDLL_MAP_VADENTRY{})))
+		entries[i] = newVADEntry(cEntry)
+	}
+	return VAD{
+		Version:    uint32(cVad.dwVersion),
+		PageCount:  uint32(cVad.cPage),
+		MultiText:  multiString(C.GoBytes(unsafe.Pointer(cVad.pbMultiText), C.int(cVad.cbMultiText))),
+		MapEntries: entries,
+	}
+}
+
+func (vmm *Vmm) getProcessMapVAD(pid uint32, identifyModules bool) (*VAD, error) {
+	var cVadMap C.PVMMDLL_MAP_VAD
+	success := C.VMMDLL_Map_GetVadU(C.VMM_HANDLE(vmm.handle), C.DWORD(pid), C.BOOL(boolToInt(identifyModules)), &cVadMap)
+
+	if success == 0 || cVadMap == nil {
+		return nil, fmt.Errorf("failed to get VAD map for process %d", pid)
+	}
+
+	defer freeMemory(C.PVOID(cVadMap))
+
+	if cVadMap.dwVersion != MapVADVersion {
+		return nil, ErrUnsupportedVADVersion
+	}
+
+	vad := newVAD(cVadMap)
+
+	return &vad, nil
+}
+
+func (vmm *Vmm) GetProcessMapVAD(ctx context.Context, pid uint32, identifyModules bool) (*VAD, error) {
+	resultChan := make(chan struct {
+		vad *VAD
+		err error
+	}, 1)
+
+	go func() {
+		vad, err := vmm.getProcessMapVAD(pid, identifyModules)
+		resultChan <- struct {
+			vad *VAD
+			err error
+		}{vad, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-resultChan:
+		return result.vad, result.err
+	}
+}

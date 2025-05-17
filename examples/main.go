@@ -102,4 +102,53 @@ func main() {
 		fmt.Printf("addr: 0x%x\n", addr)
 	}
 
+	pte, err := vmm.GetProcessMapPTE(context.TODO(), explorerPid, true)
+
+	if err != nil {
+		fmt.Println(err)
+		//return
+	} else {
+		for _, s := range pte.MultiText {
+			fmt.Printf("text: %s\n", s)
+		}
+
+		for _, entry := range pte.MapEntries {
+			fmt.Printf("entry: %s\n", entry.Text)
+		}
+	}
+
+	fmt.Println("===== PTE STRUCT =====")
+	fmt.Printf("Version      : %d\n", pte.Version)
+	fmt.Printf("MultiText    : %s\n", pte.MultiText)
+	fmt.Printf("Entries count: %d\n", len(pte.MapEntries))
+	fmt.Println("---------------------------")
+
+	//for i, entry := range pte.MapEntries {
+	//	fmt.Printf("Entry #%d:\n", i+1)
+	//	//fmt.Printf("  VaBase     : 0x%X\n", entry.VABase)
+	//	//fmt.Printf("  CPages     : %d\n", entry.Pages)
+	//	//fmt.Printf("  FPage      : 0x%X\n", entry.PageFlags)
+	//	//fmt.Printf("  IsWow64    : %t\n", entry.IsWoW64)
+	//	//fmt.Printf("  Text       : %s\n", entry.Text)
+	//	//fmt.Printf("  CSoftware  : %d\n", entry.SoftCount)
+	//	fmt.Printf("  F  : %d\n", entry.FutureUse1)
+	//	fmt.Printf("  R  : %d\n", entry.Reserved1)
+	//	fmt.Println("---------------------------")
+	//}
+
+	//fmt.Println(prettyPrint(pte))
+
+	vad, err := vmm.GetProcessMapVAD(context.TODO(), explorerPid, true)
+
+	if err != nil {
+		fmt.Println(err)
+		//return
+	} else {
+		fmt.Println("===== VAD STRUCT =====", prettyPrint(vad))
+	}
+}
+
+func prettyPrint(i interface{}) string {
+	s, _ := json.MarshalIndent(i, "", "\t")
+	return string(s)
 }

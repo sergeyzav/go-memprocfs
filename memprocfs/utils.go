@@ -13,3 +13,29 @@ func cString(ptr unsafe.Pointer, size int) string {
 	}
 	return string(bytesArr[:last])
 }
+
+func boolToInt(b bool) int {
+	var i int
+	if b {
+		i = 1
+	} else {
+		i = 0
+	}
+	return i
+}
+
+func multiString(data []byte) []string {
+	var result []string
+	parts := bytes.Split(data, []byte{0})
+
+	for _, part := range parts {
+		if len(part) > 0 {
+			result = append(result, string(part))
+		}
+	}
+	return result
+}
+
+/**
+todo: VMMDLL_Log
+*/

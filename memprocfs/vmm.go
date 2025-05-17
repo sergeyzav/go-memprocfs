@@ -82,50 +82,6 @@ func CloseAll() {
 	C.VMMDLL_CloseAll()
 }
 
-// MemRead reads memory from the specified process
-func (v *Vmm) MemRead(pid uint32, va uint64, size uint32) ([]byte, error) {
-	buf := make([]byte, size)
-	success := C.VMMDLL_MemRead(v.handle, C.DWORD(pid), C.ULONG64(va), (*C.BYTE)(unsafe.Pointer(&buf[0])), C.DWORD(size))
-	if success == 0 {
-		return nil, errors.New("failed to read memory")
-	}
-
-	return buf, nil
-}
-
-// MemReadEx reads memory with additional flags
-func (v *Vmm) MemReadEx(pid uint32, va uint64, size uint32, flags uint64) ([]byte, uint32, error) {
-	buf := make([]byte, size)
-	var bytesRead uint32
-	success := C.VMMDLL_MemReadEx(v.handle, C.DWORD(pid), C.ULONG64(va),
-		(*C.BYTE)(unsafe.Pointer(&buf[0])), C.DWORD(size),
-		(*C.DWORD)(unsafe.Pointer(&bytesRead)), C.ULONG64(flags))
-	if success == 0 {
-		return nil, 0, errors.New("failed to read memory")
-	}
-	return buf, bytesRead, nil
-}
-
-// MemWrite writes memory to the specified process
-func (v *Vmm) MemWrite(pid uint32, va uint64, data []byte) error {
-	success := C.VMMDLL_MemWrite(v.handle, C.DWORD(pid), C.ULONG64(va),
-		(*C.BYTE)(unsafe.Pointer(&data[0])), C.DWORD(len(data)))
-	if success == 0 {
-		return errors.New("failed to write memory")
-	}
-	return nil
-}
-
-// MemVirt2Phys converts virtual address to physical address
-func (v *Vmm) MemVirt2Phys(pid uint32, va uint64) (uint64, error) {
-	var pa uint64
-	success := C.VMMDLL_MemVirt2Phys(v.handle, C.DWORD(pid), C.ULONG64(va), (*C.ULONG64)(unsafe.Pointer(&pa)))
-	if success == 0 {
-		return 0, errors.New("failed to convert virtual address to physical")
-	}
-	return pa, nil
-}
-
 // MemReadScatter reads memory in a scattered way
 
 func (v *Vmm) NewScatterTask(pid uint32, flags uint32) (*ScatterTask, error) {
@@ -143,5 +99,5 @@ func getMemSize(ptr C.PVOID) uint64 {
 		return 0
 	}
 
-	return uint64(C.VMMDLL_MemGetSize(ptr))
+	return uint64(C.VMMDLL_MemSize(ptr))
 }
