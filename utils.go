@@ -1,4 +1,4 @@
-package memprocfs
+package go_memprocfs
 
 import (
 	"bytes"
@@ -34,6 +34,24 @@ func multiString(data []byte) []string {
 		}
 	}
 	return result
+}
+
+func cArray[T any](base unsafe.Pointer, count int) []*T {
+	size := unsafe.Sizeof(*new(T))
+	result := make([]*T, count)
+	for i := 0; i < count; i++ {
+		offset := uintptr(i) * size
+		result[i] = (*T)(unsafe.Pointer(uintptr(base) + offset))
+	}
+	return result
+}
+
+func afterDWORD(ptr unsafe.Pointer) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(ptr) + unsafe.Sizeof(uint32(0)))
+}
+
+func afterField(base unsafe.Pointer, fieldOffset uintptr, fieldSize uintptr) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(base) + fieldOffset + fieldSize)
 }
 
 /**

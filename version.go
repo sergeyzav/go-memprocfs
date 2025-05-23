@@ -1,4 +1,4 @@
-package memprocfs
+package go_memprocfs
 
 import "errors"
 

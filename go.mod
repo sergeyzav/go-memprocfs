@@ -1,3 +1,3 @@
-module github.com/sergeyzav/go-memprocfs
+module github.com/sergeyzav/memprocfs
 
 go 1.23.7

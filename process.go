@@ -1,4 +1,4 @@
-package memprocfs
+package go_memprocfs
 
 /*
 #include "vmmdll.h"
@@ -649,11 +649,10 @@ func newPTEFromC(cPte *C.VMMDLL_MAP_PTE) PTE {
 	}
 
 	count := int(cPte.cMap)
-	entries := make([]PTEEntry, 0, count)
+	entries := make([]PTEEntry, count)
 	cEntryPtr := unsafe.Pointer(uintptr(unsafe.Pointer(cPte)) + unsafe.Offsetof(cPte.cMap) + unsafe.Sizeof(cPte.cMap))
-	for i := 0; i < count; i++ {
-		cEntry := (*C.VMMDLL_MAP_PTEENTRY)(unsafe.Pointer(uintptr(cEntryPtr) + uintptr(i)*unsafe.Sizeof(C.VMMDLL_MAP_PTEENTRY{})))
-		entries = append(entries, newPTEEntryFromC(cEntry))
+	for i, cEntry := range cArray[C.VMMDLL_MAP_PTEENTRY](cEntryPtr, count) {
+		entries[i] = newPTEEntryFromC(cEntry)
 	}
 
 	return PTE{
@@ -794,8 +793,7 @@ func newVAD(cVad *C.VMMDLL_MAP_VAD) VAD {
 	entries := make([]VADEntry, count)
 	cEntryPtr := unsafe.Pointer(uintptr(unsafe.Pointer(cVad)) + unsafe.Offsetof(cVad.cMap) + unsafe.Sizeof(cVad.cMap))
 
-	for i := 0; i < int(count); i++ {
-		cEntry := (*C.VMMDLL_MAP_VADENTRY)(unsafe.Pointer(uintptr(cEntryPtr) + uintptr(i)*unsafe.Sizeof(C.VMMDLL_MAP_VADENTRY{})))
+	for i, cEntry := range cArray[C.VMMDLL_MAP_VADENTRY](cEntryPtr, int(count)) {
 		entries[i] = newVADEntry(cEntry)
 	}
 	return VAD{
@@ -844,5 +842,106 @@ func (vmm *Vmm) GetProcessMapVAD(ctx context.Context, pid uint32, identifyModule
 		return nil, ctx.Err()
 	case result := <-resultChan:
 		return result.vad, result.err
+	}
+}
+
+type Module struct {
+	Version   uint32
+	MultiText []string
+	Entries   []ModuleEntry
+}
+
+type ModuleEntry struct {
+	VaBase       uint64
+	VaEntry      uint64
+	ImageSize    uint32
+	WoW64        bool
+	Name         string
+	FullName     string
+	FileSizeRaw  uint32
+	SectionCount uint32
+	EatCount     uint32
+	IatCount     uint32
+}
+
+func newModule(cMod *C.VMMDLL_MAP_MODULE) Module {
+	mod := Module{
+		Version: uint32(cMod.dwVersion),
+	}
+
+	// MultiText
+	if cMod.pbMultiText != nil && cMod.cbMultiText > 0 {
+		mod.MultiText = multiString(C.GoBytes(unsafe.Pointer(cMod.pbMultiText), C.int(cMod.cbMultiText)))
+	}
+
+	// Entries
+	count := int(cMod.cMap)
+
+	//entriesPtr := unsafe.Pointer(uintptr(unsafe.Pointer(cMod)) + unsafe.Offsetof(cMod.cMap) + unsafe.Sizeof(cMod.cMap))
+	entriesPtr := afterDWORD(unsafe.Pointer(&cMod.cMap))
+
+	mod.Entries = make([]ModuleEntry, count)
+
+	for i, cEntry := range cArray[C.VMMDLL_MAP_MODULEENTRY](entriesPtr, count) {
+		entry := ModuleEntry{
+			VaBase:       uint64(cEntry.vaBase),
+			VaEntry:      uint64(cEntry.vaEntry),
+			ImageSize:    uint32(cEntry.cbImageSize),
+			WoW64:        cEntry.fWoW64 != 0,
+			FileSizeRaw:  uint32(cEntry.cbFileSizeRaw),
+			SectionCount: uint32(cEntry.cSection),
+			EatCount:     uint32(cEntry.cEAT),
+			IatCount:     uint32(cEntry.cIAT),
+		}
+
+		uszTextPtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry.fWoW64) + unsafe.Sizeof(cEntry.fWoW64)))
+		entry.Name = C.GoString((*C.char)(unsafe.Pointer(uszTextPtr)))
+
+		uszFullNamePtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry._Reserved4) + unsafe.Sizeof(cEntry._Reserved4)))
+		entry.FullName = C.GoString((*C.char)(unsafe.Pointer(uszFullNamePtr)))
+
+		mod.Entries[i] = entry
+	}
+
+	return mod
+}
+
+/**
+todo :VMMDLL_Map_GetVadEx
+*/
+
+func (vmm *Vmm) getProcessModuleList(pid uint32, flags uint32) (*Module, error) {
+	var cModules C.PVMMDLL_MAP_MODULE
+
+	success := C.VMMDLL_Map_GetModuleU(C.VMM_HANDLE(vmm.handle), C.DWORD(pid), &cModules, C.DWORD(flags))
+
+	if success == 0 {
+		return nil, fmt.Errorf("failed to get module list for process %d", pid)
+	}
+
+	defer freeMemory(C.PVOID(cModules))
+
+	module := newModule(cModules)
+	return &module, nil
+}
+func (vmm *Vmm) GetProcessModuleList(ctx context.Context, pid uint32, flags uint32) (*Module, error) {
+	resultChan := make(chan struct {
+		module *Module
+		err    error
+	}, 1)
+
+	go func() {
+		module, err := vmm.getProcessModuleList(pid, flags)
+		resultChan <- struct {
+			module *Module
+			err    error
+		}{module, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-resultChan:
+		return result.module, result.err
 	}
 }
