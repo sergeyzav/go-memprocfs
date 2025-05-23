@@ -864,6 +864,26 @@ type ModuleEntry struct {
 	IatCount     uint32
 }
 
+func newModuleEntry(cEntry *C.VMMDLL_MAP_MODULEENTRY) ModuleEntry {
+	entry := ModuleEntry{
+		VaBase:       uint64(cEntry.vaBase),
+		VaEntry:      uint64(cEntry.vaEntry),
+		ImageSize:    uint32(cEntry.cbImageSize),
+		WoW64:        cEntry.fWoW64 != 0,
+		FileSizeRaw:  uint32(cEntry.cbFileSizeRaw),
+		SectionCount: uint32(cEntry.cSection),
+		EatCount:     uint32(cEntry.cEAT),
+		IatCount:     uint32(cEntry.cIAT),
+	}
+
+	uszTextPtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry.fWoW64) + unsafe.Sizeof(cEntry.fWoW64)))
+	entry.Name = C.GoString((*C.char)(unsafe.Pointer(uszTextPtr)))
+
+	uszFullNamePtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry._Reserved4) + unsafe.Sizeof(cEntry._Reserved4)))
+	entry.FullName = C.GoString((*C.char)(unsafe.Pointer(uszFullNamePtr)))
+
+	return entry
+}
 func newModule(cMod *C.VMMDLL_MAP_MODULE) Module {
 	mod := Module{
 		Version: uint32(cMod.dwVersion),
@@ -883,22 +903,7 @@ func newModule(cMod *C.VMMDLL_MAP_MODULE) Module {
 	mod.Entries = make([]ModuleEntry, count)
 
 	for i, cEntry := range cArray[C.VMMDLL_MAP_MODULEENTRY](entriesPtr, count) {
-		entry := ModuleEntry{
-			VaBase:       uint64(cEntry.vaBase),
-			VaEntry:      uint64(cEntry.vaEntry),
-			ImageSize:    uint32(cEntry.cbImageSize),
-			WoW64:        cEntry.fWoW64 != 0,
-			FileSizeRaw:  uint32(cEntry.cbFileSizeRaw),
-			SectionCount: uint32(cEntry.cSection),
-			EatCount:     uint32(cEntry.cEAT),
-			IatCount:     uint32(cEntry.cIAT),
-		}
-
-		uszTextPtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry.fWoW64) + unsafe.Sizeof(cEntry.fWoW64)))
-		entry.Name = C.GoString((*C.char)(unsafe.Pointer(uszTextPtr)))
-
-		uszFullNamePtr := *(*uintptr)(unsafe.Pointer(uintptr(unsafe.Pointer(cEntry)) + unsafe.Offsetof(cEntry._Reserved4) + unsafe.Sizeof(cEntry._Reserved4)))
-		entry.FullName = C.GoString((*C.char)(unsafe.Pointer(uszFullNamePtr)))
+		entry := newModuleEntry(cEntry)
 
 		mod.Entries[i] = entry
 	}

@@ -15,22 +15,6 @@ const (
 	PidProcessWithKernelMemory = 0x80000000
 )
 
-// Flags for memory read operations and behavior tuning
-const (
-	FlagNoCache                   = 0x0001 // Do not use the data cache (force direct memory reads)
-	FlagZeroPadOnFail             = 0x0002 // Zero-pad failed physical memory reads if within physical memory range
-	FlagForceCacheRead            = 0x0008 // Force use of cache; fail if page isn't cached (invalid with NoCache / ZeroPadOnFail)
-	FlagNoPaging                  = 0x0010 // Do not try to read paged-out memory from pagefile/compressed memory
-	FlagNoPagingIO                = 0x0020 // Do not trigger I/O operations to fetch paged-out memory
-	FlagNoCachePut                = 0x0100 // Do not write successful memory reads back to cache
-	FlagCacheRecentOnly           = 0x0200 // Only fetch from the most recent active cache region
-	FlagNoPredictiveRead          = 0x0400 // (Deprecated/unused)
-	FlagForceCacheReadDisable     = 0x0800 // Disable any use of ForceCacheRead; only recommended for local files
-	FlagScatterPrepareExNoMemZero = 0x1000 // Do not zero out memory buffer before scatter read
-	FlagNoMemCallback             = 0x2000 // Disable memory callback functions during memory reads
-	FlagScatterForcePageRead      = 0x4000 // Force page-sized reads when using scatter functionality
-)
-
 // Memory read/write flags
 const (
 	VMMDLL_MEM_FLAG_NONE            = 0x00000000

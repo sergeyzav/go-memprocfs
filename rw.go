@@ -21,16 +21,18 @@ func (v *Vmm) MemRead(pid uint32, va uint64, size uint32) ([]byte, error) {
 }
 
 // MemReadEx reads memory with additional flags
-func (v *Vmm) MemReadEx(pid uint32, va uint64, size uint32, flags uint64) ([]byte, uint32, error) {
-	buf := make([]byte, size)
+func (v *Vmm) MemReadEx(pid uint32, va uint64, buffer []byte, flags VMMFlag) (uint32, error) {
 	var bytesRead uint32
+	size := uint32(len(buffer))
 	success := C.VMMDLL_MemReadEx(v.handle, C.DWORD(pid), C.ULONG64(va),
-		(*C.BYTE)(unsafe.Pointer(&buf[0])), C.DWORD(size),
+		(*C.BYTE)(unsafe.Pointer(&buffer[0])), C.DWORD(size),
 		(*C.DWORD)(unsafe.Pointer(&bytesRead)), C.ULONG64(flags))
+
 	if success == 0 {
-		return nil, 0, errors.New("failed to read memory")
+		return 0, errors.New("failed to read memory")
 	}
-	return buf, bytesRead, nil
+
+	return bytesRead, nil
 }
 
 // MemWrite writes memory to the specified process
